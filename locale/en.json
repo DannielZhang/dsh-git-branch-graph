@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Git branch graph",
+    "description": "Opens a read-only Git branch graph in the blank right gutter during development tasks, and replaces the no-repository error with a safe creation wizard. The wizard previews the selected project subdirectory, enforces file-count and size limits, excludes secrets and dependencies through .git/info/exclude, creates the first commit, and can create and push a GitHub, Gitee, self-hosted, or existing repository. Personal access tokens are used only in request memory and are not saved or written to .git/config. Requires a live Session and local Git. Disable the bundle to remove the panel, repository actions, and authenticated routes."
+  }
+}

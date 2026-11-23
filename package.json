@@ -1,0 +1,51 @@
+{
+  "name": "@local/dsh-git-branch-graph",
+  "version": "1.2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./projection": "./projection.js",
+    "./git": "./git.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "projection.js",
+    "git.js",
+    "repo.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node --check index.js && node --check projection.js && node --check git.js && node --check repo.js && node --check client.js && node --test test/*.test.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.2.2-rc.3"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-session"
+      ]
+    }
+  }
+}
