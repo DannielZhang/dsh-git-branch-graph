@@ -53,7 +53,7 @@
           "source": {
             "type": "git",
             "url": "https://github.com/DannielZhang/dsh-git-branch-graph.git",
-            "commit": "0000000000000000000000000000000000000000"
+            "commit": "43ed1609b630d910452193b3c67ec0264dd45654"
           },
           "engines": {
             "dsh": ">=0.2.2-rc.3"
