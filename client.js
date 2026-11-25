@@ -47,12 +47,24 @@ window.__ModuleLoader__.load({
     }
 
     /** Position the floating panel in the conversation's right gutter, or hide it when the gutter is too narrow. */
+    function computeDockedLayout(geometry, viewportWidth) {
+      if (geometry === null) return null
+      const width = Math.round(viewportWidth - geometry.right - 16)
+      if (!Number.isFinite(width) || width < 280) return null
+      return {
+        top: Math.round(geometry.top + 8),
+        right: 8,
+        width,
+        maxHeight: Math.max(160, Math.round(geometry.height - 16)),
+      }
+    }
+
     function computeFloatingLayout(geometry, collapsed, viewportWidth) {
       if (geometry === null) return null
       const width = geometry.viewportWidth ?? viewportWidth
       const contentRight = geometry.left + (geometry.width + geometry.contentWidth) / 2
-      const available = Math.min(340, geometry.right - 16 - (contentRight + 40))
-      if (!Number.isFinite(available) || available < 160) return null
+      const available = Math.min(460, geometry.right - 16 - (contentRight + 16))
+      if (!Number.isFinite(available) || available < 180) return null
       return {
         top: Math.round(geometry.top + 16),
         right: Math.round(Math.max(16, width - geometry.right + 16)),
@@ -97,6 +109,8 @@ window.__ModuleLoader__.load({
       moreRefs: '还有 {count} 个引用',
       repository: '仓库 {path}',
       gitMissing: '还未创建 Git，是否进行创建？',
+      remoteNotGit: '远端目录不是 Git 仓库，无法读取分支图。',
+      remoteError: '无法通过 SSH 读取远端分支图（{host}）。',
       createGit: '创建 Git 仓库',
       manageRepo: '创建或管理 Git 仓库',
       repoWizardTitle: '创建 Git 仓库',
@@ -117,6 +131,9 @@ window.__ModuleLoader__.load({
       directoriesTruncated: '仅显示前 {count} 个子目录。',
       currentDirectory: '当前目录（将在其中创建 Git 仓库）',
       workspaceRootName: '工作区根目录',
+      projects: '项目',
+      loadingGraph: '正在加载分支图…',
+      projectDiscoveryFailed: '无法读取项目列表。',
       tooManyFiles: '文件过多（{count} 个，上限 {limit} 个）。请选择更小的子目录，或先添加 .gitignore。',
       tooManyFilesUnknown: '目录内容过多，无法安全预览。请选择更小的子目录。',
       totalTooLarge: '文件总大小 {size}，超过上限 {limit}。',
@@ -146,6 +163,17 @@ window.__ModuleLoader__.load({
       destCustom: '自建或已有仓库 URL',
       token: 'Personal Access Token',
       tokenHint: '需要仓库创建与推送权限；仅在本次请求的内存中使用，不保存，也不写入 .git/config。后续推送请使用系统 Git 凭证。',
+      credential: '本机凭据',
+      credentialManual: '手动输入 Token',
+      credentialLoading: '正在读取本机凭据…',
+      credentialNone: '未发现本机凭据，请手动输入 Token。',
+      credentialRefresh: '刷新本机凭据',
+      credentialHint: '使用本机凭据：{account}（{source}）。Token 不会发送到浏览器。',
+      credentialSourceHelper: 'Git 凭据助手',
+      credentialSourceGitCredentials: '~/.git-credentials',
+      credentialSourceGh: 'GitHub CLI',
+      credentialSourceEnv: '环境变量',
+      credentialExpired: '所选本机凭据已失效，请刷新凭据列表或手动输入 Token。',
       visibility: '可见性',
       public: '公开',
       private: '私有',
@@ -208,6 +236,8 @@ window.__ModuleLoader__.load({
       moreRefs: '{count} more refs',
       repository: 'Repository {path}',
       gitMissing: 'Git has not been created yet. Create it now?',
+      remoteNotGit: 'The remote directory is not a Git repository, so no branch graph is available.',
+      remoteError: 'Could not read the remote branch graph over SSH ({host}).',
       createGit: 'Create Git repository',
       manageRepo: 'Create or manage Git repository',
       repoWizardTitle: 'Create Git repository',
@@ -228,6 +258,9 @@ window.__ModuleLoader__.load({
       directoriesTruncated: 'Showing the first {count} subdirectories.',
       currentDirectory: 'Current directory (the repository will be created here)',
       workspaceRootName: 'Workspace root',
+      projects: 'Projects',
+      loadingGraph: 'Loading branch graph…',
+      projectDiscoveryFailed: 'Could not read the project list.',
       tooManyFiles: 'Too many files ({count}; limit {limit}). Choose a smaller subdirectory or add .gitignore first.',
       tooManyFilesUnknown: 'This directory is too large to preview safely. Choose a smaller subdirectory.',
       totalTooLarge: 'Total size is {size}, above the {limit} limit.',
@@ -257,6 +290,17 @@ window.__ModuleLoader__.load({
       destCustom: 'Self-hosted or existing repository URL',
       token: 'Personal access token',
       tokenHint: 'Needs repository creation and push permission. Used only in this request’s memory; not saved or written to .git/config. Later pushes use your system Git credentials.',
+      credential: 'Local credential',
+      credentialManual: 'Enter a token manually',
+      credentialLoading: 'Reading local credentials…',
+      credentialNone: 'No local credential was found. Enter a token manually.',
+      credentialRefresh: 'Refresh local credentials',
+      credentialHint: 'Using local credential {account} ({source}). The token is never sent to the browser.',
+      credentialSourceHelper: 'Git credential helper',
+      credentialSourceGitCredentials: '~/.git-credentials',
+      credentialSourceGh: 'GitHub CLI',
+      credentialSourceEnv: 'Environment variable',
+      credentialExpired: 'The selected local credential is no longer available. Refresh the list or enter a token manually.',
       visibility: 'Visibility',
       public: 'Public',
       private: 'Private',
@@ -320,6 +364,12 @@ window.__ModuleLoader__.load({
       .dsh-gbg-icon-button:active:not(:disabled){background:var(--dsw-alias-button-ghost-active-fill)}
       .dsh-gbg-icon-button:disabled{cursor:default;opacity:.55}
       .dsh-gbg-spinning svg{animation:dsh-gbg-spin .9s linear infinite}
+      .dsh-gbg-projects{display:flex;gap:4px;overflow-x:auto;padding:0 8px 7px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+      .dsh-gbg-project-tab{flex:none;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;font-size:11px;line-height:18px;cursor:pointer}
+      .dsh-gbg-project-tab:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
+      .dsh-gbg-project-tab[aria-pressed='true']{border-color:var(--dsw-alias-border-selected,var(--dsw-alias-border-l2));color:var(--dsw-alias-label-primary);background:var(--dsw-alias-button-ghost-active-fill,var(--dsw-alias-interactive-bg-hover))}
+      .dsh-gbg-project-tab:focus-visible{outline-style:solid;outline-color:var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-width:var(--dsw-focus-ring-width,2px);outline-offset:1px}
+      .dsh-gbg-discovery-error{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 9px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:11px;line-height:16px;color:var(--dsw-alias-state-error-primary)}
       .dsh-gbg-body{display:flex;flex-direction:column;min-height:0;overflow:hidden;border-top:1px solid var(--dsw-alias-border-l1)}
       .dsh-gbg-status{display:flex;align-items:center;justify-content:center;gap:10px;min-height:92px;padding:18px;font-size:13px;line-height:20px;color:var(--dsw-alias-label-secondary);text-align:center}
       .dsh-gbg-error{color:var(--dsw-alias-state-error-primary)}
@@ -333,7 +383,7 @@ window.__ModuleLoader__.load({
       .dsh-gbg-row{box-sizing:border-box;display:flex;align-items:center;gap:8px;height:46px;min-width:0;padding:4px 12px 4px 4px;border-bottom:1px solid var(--dsw-alias-border-l1);font-size:12px;line-height:18px}
       .dsh-gbg-row:last-child{border-bottom:0}
       .dsh-gbg-refs{display:flex;align-items:center;gap:4px;flex:none;max-width:46%;overflow:hidden}
-      .dsh-gbg-ref{display:inline-block;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:18px}
+      .dsh-gbg-ref{display:inline-block;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 6px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);color:var(--dsw-alias-label-secondary);font-size:10px;line-height:18px}
       .dsh-gbg-ref-head{border-color:var(--dsw-alias-border-selected);color:var(--dsw-alias-label-primary-bluish)}
       .dsh-gbg-subject{min-width:80px;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary)}
       .dsh-gbg-hash{flex:none;color:var(--dsw-alias-label-tertiary);font:11px/18px ui-monospace,SFMono-Regular,Menlo,monospace}
@@ -372,6 +422,7 @@ window.__ModuleLoader__.load({
       .dsh-gbg-dirrow:focus-visible{outline-style:solid;outline-color:var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-width:var(--dsw-focus-ring-width,2px);outline-offset:1px}
       .dsh-gbg-diricon{display:grid;place-items:center;flex:none;color:var(--dsw-alias-label-tertiary)}
       .dsh-gbg-dirname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .dsh-gbg-credential-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
       .dsh-gbg-preview{display:flex;flex-direction:column;gap:6px;padding:9px 10px;border:1px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-card-fill);font-size:12px;line-height:18px}
       .dsh-gbg-preview-ok{color:var(--dsw-alias-label-secondary)}
       .dsh-gbg-preview-error{color:var(--dsw-alias-state-error-primary)}
@@ -390,7 +441,9 @@ window.__ModuleLoader__.load({
       .dsh-gbg-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
       @media (max-width:640px){.dsh-gbg-modal-backdrop{padding:12px}.dsh-gbg-modal{max-height:calc(100dvh - 24px)}.dsh-gbg-row2{grid-template-columns:1fr}}
       @keyframes dsh-gbg-spin{to{transform:rotate(360deg)}}
-      @container (max-width:260px){.dsh-gbg-project,.dsh-gbg-current,.dsh-gbg-date{display:none}.dsh-gbg-refs{max-width:44%}.dsh-gbg-header{gap:5px;padding-inline:8px 6px}}
+      @container (max-width:340px){.dsh-gbg-date,.dsh-gbg-hash{display:none}.dsh-gbg-refs{max-width:54%}.dsh-gbg-subject{min-width:60px}}
+      @container (max-width:300px){.dsh-gbg-project,.dsh-gbg-current{display:none}.dsh-gbg-refs{max-width:56%}.dsh-gbg-header{gap:5px;padding-inline:8px 6px}}
+      @container (max-width:260px){.dsh-gbg-date{display:none}.dsh-gbg-refs{max-width:48%}.dsh-gbg-header{gap:5px;padding-inline:8px 6px}}
       @container (max-width:210px){.dsh-gbg-hash,.dsh-gbg-title{display:none}.dsh-gbg-title-short{display:inline}.dsh-gbg-refs{max-width:45%}.dsh-gbg-subject{min-width:0}.dsh-gbg-row{gap:6px;padding-right:8px}.dsh-gbg-header{gap:4px;padding-inline:6px 4px}.dsh-gbg-header-error{width:12px;height:12px}.dsh-gbg-branch-icon{width:16px}}
       @media (max-width:640px){.dsh-gbg-current{display:none}.dsh-gbg-date{display:none}.dsh-gbg-refs{max-width:40%}.dsh-gbg-scroll{max-height:300px}}
       @media (max-width:480px){.dsh-gbg-hash{display:none}.dsh-gbg-refs{max-width:52%}.dsh-gbg-row{gap:6px}.dsh-gbg-title{font-size:12px}}
@@ -551,6 +604,35 @@ window.__ModuleLoader__.load({
       return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GiB`
     }
 
+    function credentialSourceLabel(source, t) {
+      if (source === 'helper') return t('credentialSourceHelper')
+      if (source === 'git-credentials') return t('credentialSourceGitCredentials')
+      if (source === 'gh-cli') return t('credentialSourceGh')
+      if (source === 'environment') return t('credentialSourceEnv')
+      return source
+    }
+
+    function mergeProjectList(projection, cwd, repoPath) {
+      const projects = Array.isArray(projection?.projects)
+        ? projection.projects.filter(project => project && typeof project.id === 'string'
+          && typeof project.path === 'string' && typeof project.label === 'string')
+          .map(project => ({ ...project }))
+        : []
+      if (projects.length === 0 && typeof cwd === 'string') {
+        projects.push({ id: 'root', path: '', label: pathBase(cwd), lastSeq: 0, source: 'session' })
+      }
+      if (repoPath !== '' && !projects.some(project => project.path === repoPath)) {
+        projects.push({
+          id: `created:${repoPath}`,
+          path: repoPath,
+          label: pathBase(repoPath),
+          lastSeq: 0,
+          source: 'created',
+        })
+      }
+      return projects
+    }
+
     function defaultRepoName(name) {
       const value = String(name).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 100)
       return value === '' ? 'project' : value
@@ -572,6 +654,7 @@ window.__ModuleLoader__.load({
       if (code === 'invalid-remote-url' || code === 'remote-redirect') return t('errorRemoteUrl')
       if (code === 'unsafe-path') return t('errorUnsafePath')
       if (code === 'remote-missing') return t('errorRemoteMissing')
+      if (code === 'credential-expired') return t('credentialExpired')
       if (code === 'body-too-large') return t('errorBodyTooLarge')
       if (code === 'invalid-path') return t('errorInvalidPath')
       if (code === 'directory-not-found') return t('errorDirectoryMissing')
@@ -736,6 +819,8 @@ window.__ModuleLoader__.load({
       const defaultsApplied = useRef(false)
       const projectTouched = useRef(false)
       const repoTouched = useRef(false)
+      const credentialTouched = useRef(false)
+      const credentialChoice = useRef(null)
       const [path, setPath] = useState(initialPath)
       const [previewTarget, setPreviewTarget] = useState({ path: initialPath, version: 0 })
       const [preview, setPreview] = useState({ status: 'loading' })
@@ -747,6 +832,9 @@ window.__ModuleLoader__.load({
       const [createGitignore, setCreateGitignore] = useState(true)
       const [provider, setProvider] = useState('none')
       const [token, setToken] = useState('')
+      const [credentialState, setCredentialState] = useState({ status: 'idle', entries: [] })
+      const [credentialId, setCredentialId] = useState('manual')
+      const [credentialRefresh, setCredentialRefresh] = useState(0)
       const [privateRepo, setPrivateRepo] = useState(false)
       const [remoteUrl, setRemoteUrl] = useState('')
       const [busy, setBusy] = useState(false)
@@ -809,6 +897,45 @@ window.__ModuleLoader__.load({
       }, [sessionId, previewTarget])
 
       useEffect(() => {
+        if (provider !== 'github' && provider !== 'gitee') {
+          setCredentialState({ status: 'idle', entries: [] })
+          setCredentialId('manual')
+          return
+        }
+        const controller = new AbortController()
+        let active = true
+        setCredentialState({ status: 'loading', entries: [] })
+        const query = new URLSearchParams({ sessionId, provider })
+        if (credentialRefresh > 0) query.set('refresh', '1')
+        fetch(`api/git-branch-graph/credentials?${query}`, { signal: controller.signal })
+          .then(async (response) => {
+            const value = await response.json()
+            if (!response.ok) throw new Error('Credential discovery failed')
+            if (!active) return
+            const entries = Array.isArray(value?.credentials) ? value.credentials : []
+            setCredentialState({ status: 'ready', entries })
+            setCredentialId(current => {
+              if (!credentialTouched.current) return entries[0]?.id ?? 'manual'
+              if (current === 'manual') return 'manual'
+              const remembered = credentialChoice.current
+              const match = remembered === null ? undefined : entries.find(entry =>
+                entry.account === remembered.account && entry.source === remembered.source)
+              return match?.id ?? entries.find(entry => entry.id === current)?.id ?? entries[0]?.id ?? 'manual'
+            })
+          })
+          .catch(() => {
+            if (active && !controller.signal.aborted) {
+              setCredentialState({ status: 'ready', entries: [] })
+              setCredentialId('manual')
+            }
+          })
+        return () => {
+          active = false
+          controller.abort()
+        }
+      }, [sessionId, provider, credentialRefresh])
+
+      useEffect(() => {
         const first = dialogRef.current?.querySelector('[data-autofocus]')
           ?? dialogRef.current?.querySelector('input, select, textarea')
           ?? dialogRef.current?.querySelector('button')
@@ -864,10 +991,12 @@ window.__ModuleLoader__.load({
           : path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
       const origin = existing && Array.isArray(preview.remotes)
         ? preview.remotes.find(remote => remote.name === 'origin' && remote.usable !== false) : undefined
+      const authProvider = provider === 'github' || provider === 'gitee'
+      const selectedCredential = credentialState.entries.find(entry => entry.id === credentialId)
       const canSubmit = previewOk && !busy && path === previewTarget.path
         && (!existing || preview.hasCommit === false || provider !== 'none')
-        && (provider !== 'github' && provider !== 'gitee' || token.trim() !== '')
-        && (provider !== 'github' && provider !== 'gitee' || repoName.trim() !== '')
+        && (!authProvider || credentialId !== 'manual' || token.trim() !== '')
+        && (!authProvider || repoName.trim() !== '')
         && (provider !== 'custom' || remoteUrl.trim() !== '')
       const primaryLabel = provider === 'none'
         ? existing && preview.hasCommit === false ? t('createFirstCommit') : t('createLocal')
@@ -900,7 +1029,8 @@ window.__ModuleLoader__.load({
               authorEmail: authorEmail.trim(),
               createGitignore,
               provider,
-              token: token.trim(),
+              token: credentialId === 'manual' ? token.trim() : '',
+              ...(credentialId === 'manual' ? {} : { credentialId }),
               repoName: repoName.trim(),
               private: privateRepo,
               remoteUrl: remoteUrl.trim(),
@@ -1111,7 +1241,13 @@ window.__ModuleLoader__.load({
                   h('h3', { className: 'dsh-gbg-section-title' }, t('destination')),
                   field(t('destination'), h('select', {
                     id: `${id}-provider`, className: 'dsh-gbg-select', value: provider,
-                    onChange: (event) => { setProvider(event.target.value); setToken('') },
+                    onChange: (event) => {
+                      setProvider(event.target.value)
+                      setToken('')
+                      setCredentialId('manual')
+                      credentialTouched.current = false
+                      credentialChoice.current = null
+                    },
                   },
                     h('option', { value: 'none' }, t('destNone')),
                     origin !== undefined && h('option', { value: 'existing' }, t('destExisting')),
@@ -1120,8 +1256,37 @@ window.__ModuleLoader__.load({
                     h('option', { value: 'custom' }, t('destCustom')))),
                   provider === 'existing' && origin !== undefined
                     && h('div', { className: 'dsh-gbg-hint' }, origin.pushUrl ?? origin.url),
-                  (provider === 'github' || provider === 'gitee') && h(React.Fragment, null,
-                    field(t('token'), h('input', {
+                  authProvider && h(React.Fragment, null,
+                    field(t('credential'), h('select', {
+                      id: `${id}-credential`, className: 'dsh-gbg-select', value: credentialId,
+                      onChange: (event) => {
+                        credentialTouched.current = true
+                        const entry = credentialState.entries.find(item => item.id === event.target.value)
+                        credentialChoice.current = entry === undefined
+                          ? null : { account: entry.account, source: entry.source }
+                        setCredentialId(event.target.value)
+                        if (event.target.value !== 'manual') setToken('')
+                      },
+                    },
+                      credentialState.entries.map(entry => h('option', { key: entry.id, value: entry.id },
+                        `${entry.account} · ${credentialSourceLabel(entry.source, t)}`)),
+                      h('option', { value: 'manual' }, t('credentialManual')))),
+                    h('div', { className: 'dsh-gbg-credential-row' },
+                      h('span', { className: 'dsh-gbg-hint' },
+                        credentialState.status === 'loading'
+                          ? t('credentialLoading')
+                          : selectedCredential
+                            ? t('credentialHint', {
+                              account: selectedCredential.account,
+                              source: credentialSourceLabel(selectedCredential.source, t),
+                            })
+                            : credentialState.entries.length === 0 ? t('credentialNone') : ''),
+                      h('button', {
+                        type: 'button', className: 'dsh-gbg-secondary',
+                        disabled: credentialState.status === 'loading',
+                        onClick: () => { setCredentialRefresh(value => value + 1) },
+                      }, t('credentialRefresh'))),
+                    credentialId === 'manual' && field(t('token'), h('input', {
                       id: `${id}-token`, className: 'dsh-gbg-input', type: 'password', value: token,
                       autoComplete: 'off', spellCheck: false, onChange: (event) => { setToken(event.target.value) },
                     }), t('tokenHint')),
@@ -1159,7 +1324,8 @@ window.__ModuleLoader__.load({
     }
 
     function BranchGraphDock({
-      getMounted, subscribeMounted, getProjectionFace, getSessionRetention, geometryStore, subscribeReset, t,
+      getMounted, subscribeMounted, getProjectionFace, getSessionRetention, geometryStore, subscribeReset,
+      reserveRightbar, releaseRightbar, getSidebarExpanded, t,
     }) {
       const sessionId = useSyncExternalStore(subscribeMounted, getMounted, getMounted)
       // A selected Session may become retained just after `mounted` publishes.
@@ -1185,20 +1351,152 @@ window.__ModuleLoader__.load({
       const development = projection?.development === true
       const cwd = typeof projection?.cwd === 'string' ? projection.cwd : null
       const revision = projection?.revision ?? 0
-      const requestKey = `${sessionId}\n${cwd ?? ''}`
       const bodyId = useId()
       const manageButtonRef = useRef(null)
       const [repoPath, setRepoPath] = useState('')
+      const [selectedProjectId, setSelectedProjectId] = useState('')
       const [collapsed, setCollapsed] = useState(false)
       const [requestVersion, setRequestVersion] = useState(0)
       const [manageOpen, setManageOpen] = useState(false)
       const [result, setResult] = useState({ phase: 'idle', key: '', data: null })
+      const [sidebarExpanded, setSidebarExpanded] = useState(() => getSidebarExpanded())
+      const [sidebarWasExpanded, setSidebarWasExpanded] = useState(() => getSidebarExpanded())
+      const [reserved, setReserved] = useState(false)
+      const reservedRightbar = useRef(false)
+      const rightbarWidthInitialized = useRef(false)
+      const [projectDiscovery, setProjectDiscovery] = useState({ identity: '', key: '', projects: [] })
+      const [discoveryFailure, setDiscoveryFailure] = useState('')
+      const [discoveryRetry, setDiscoveryRetry] = useState(0)
+      const projectSignature = useMemo(
+        () => (projection?.projects ?? []).map(project => `${project.id}:${project.lastSeq}`).join('|'),
+        [projection],
+      )
+      const discoveryIdentity = `${sessionId ?? ''}\n${cwd ?? ''}\n${projectSignature}`
+      const discoveryKey = `${discoveryIdentity}\n${revision}`
+      const discoverySettled = projectDiscovery.key === discoveryKey
+      const discoveryUsable = discoverySettled || projectDiscovery.identity === discoveryIdentity
+      const rawProjects = discoveryUsable ? projectDiscovery.projects : projection?.projects ?? []
+      const projects = useMemo(
+        () => mergeProjectList({ projects: rawProjects }, cwd, repoPath),
+        [rawProjects, cwd, repoPath],
+      )
+      const selectedProject = projects.find(project => project.id === selectedProjectId) ?? projects[0] ?? null
+      const selectedPath = selectedProject?.path ?? ''
+      const requestKey = `${sessionId}\n${cwd ?? ''}\n${selectedProject?.id ?? ''}\n${selectedPath}`
+      const lastTopProject = useRef(null)
 
-      useEffect(() => { setCollapsed(false) }, [sessionId, cwd])
+      useEffect(() => {
+        setCollapsed(false)
+        setSelectedProjectId('')
+        lastTopProject.current = null
+      }, [sessionId, cwd])
       useEffect(() => {
         setRepoPath(sessionId === undefined || cwd === null ? '' : readRepoOverride(sessionId, cwd))
       }, [sessionId, cwd])
+      useEffect(() => {
+        if (!development || cwd === null || sessionId === undefined) return
+        const controller = new AbortController()
+        let active = true
+        const query = new URLSearchParams({ sessionId })
+        const settleFailure = () => {
+          setDiscoveryFailure(discoveryKey)
+          setProjectDiscovery(current => current.identity === discoveryIdentity
+            ? { ...current, key: discoveryKey }
+            : current)
+        }
+        fetch(`api/git-branch-graph/projects?${query}`, { signal: controller.signal })
+          .then(async (response) => {
+            const value = await response.json()
+            if (!active) return
+            if (!response.ok || value?.status !== 'ok' || !Array.isArray(value.projects)) {
+              settleFailure()
+              return
+            }
+            setDiscoveryFailure('')
+            setProjectDiscovery({ identity: discoveryIdentity, key: discoveryKey, projects: value.projects })
+          })
+          .catch(() => {
+            if (active) settleFailure()
+          })
+        return () => {
+          active = false
+          controller.abort()
+        }
+      }, [discoveryKey, discoveryIdentity, discoveryRetry, development, cwd, sessionId, projection])
+      useEffect(() => {
+        if (repoPath === '') return
+        const project = projects.find(item => item.path === repoPath)
+        if (project !== undefined) setSelectedProjectId(project.id)
+      }, [repoPath])
+      useEffect(() => {
+        if (!discoveryUsable) return
+        const top = rawProjects[0] ?? projects[0]
+        if (top === undefined) return
+        const stamp = `${top.id}:${top.lastSeq}`
+        const previous = lastTopProject.current
+        lastTopProject.current = stamp
+        if (previous === null) {
+          setSelectedProjectId(current => current === '' ? top.id : current)
+        } else if (previous !== stamp) {
+          setSelectedProjectId(top.id)
+        }
+      }, [discoveryUsable, rawProjects, projects])
+      useEffect(() => {
+        if (projects.length > 0 && !projects.some(project => project.id === selectedProjectId)) {
+          setSelectedProjectId(projects[0].id)
+        }
+      }, [projects, selectedProjectId])
       useEffect(() => subscribeReset(() => { setRequestVersion(value => value + 1) }), [subscribeReset])
+      useEffect(() => {
+        const check = () => {
+          let expanded = false
+          try { expanded = getSidebarExpanded() === true } catch { expanded = false }
+          setSidebarExpanded(expanded)
+          if (expanded) setSidebarWasExpanded(true)
+        }
+        check()
+        const timer = setInterval(check, 400)
+        return () => clearInterval(timer)
+      }, [getSidebarExpanded])
+      const resultHidden = result.phase === 'unavailable'
+        && HIDDEN_UNAVAILABLE.has(result.data?.reason)
+      useEffect(() => {
+        if (sidebarExpanded) {
+          if (reservedRightbar.current) {
+            reservedRightbar.current = false
+            setReserved(false)
+          }
+          return
+        }
+        const wide = typeof window !== 'undefined' && window.innerWidth >= 1000
+        const busyProbe = result.phase === 'loading' && result.data === null
+        const shouldReserve = development && sessionId !== undefined && cwd !== null
+          && !collapsed && !sidebarWasExpanded
+          && result.phase !== 'idle' && !busyProbe && !resultHidden && wide
+        if (shouldReserve) {
+          if (!reservedRightbar.current) {
+            const width = Math.min(460, Math.max(320, Math.round(window.innerWidth * 0.3)))
+            const opened = rightbarWidthInitialized.current
+              ? reserveRightbar() : reserveRightbar(width)
+            if (opened) {
+              rightbarWidthInitialized.current = true
+              reservedRightbar.current = true
+              setReserved(true)
+            }
+          }
+        } else if (reservedRightbar.current) {
+          releaseRightbar()
+          reservedRightbar.current = false
+          setReserved(false)
+        }
+      }, [
+        development, sessionId, cwd, collapsed, sidebarExpanded, sidebarWasExpanded,
+        result.phase, result.data, resultHidden, reserveRightbar, releaseRightbar,
+      ])
+      useEffect(() => () => {
+        if (reservedRightbar.current && !getSidebarExpanded()) releaseRightbar()
+        reservedRightbar.current = false
+      }, [releaseRightbar, getSidebarExpanded])
       useEffect(() => {
         if (!development || cwd === null || sessionId === undefined) {
           setResult({ phase: 'idle', key: requestKey, data: null })
@@ -1214,7 +1512,8 @@ window.__ModuleLoader__.load({
         const timer = setTimeout(async () => {
           try {
             const query = new URLSearchParams({ sessionId })
-            if (repoPath !== '') query.set('path', repoPath)
+            if (selectedProject?.remote === true) query.set('remoteProject', selectedProject.id)
+            else if (selectedPath !== '') query.set('path', selectedPath)
             const response = await fetch(`api/git-branch-graph?${query}`, {
               signal: controller.signal,
             })
@@ -1238,18 +1537,25 @@ window.__ModuleLoader__.load({
           clearTimeout(timer)
           controller.abort()
         }
-      }, [sessionId, development, cwd, repoPath, revision, requestVersion, requestKey])
+      }, [sessionId, development, cwd, selectedProject?.id, selectedProject?.remote, selectedPath, revision, requestVersion, requestKey])
 
       if (!development || cwd === null || sessionId === undefined || result.phase === 'idle') return null
+      if (sidebarExpanded) return null
       const graph = result.data
       const hiddenUnavailable = result.phase === 'unavailable' && HIDDEN_UNAVAILABLE.has(graph?.reason)
       if (hiddenUnavailable) return null
-      const layout = computeFloatingLayout(geometry, collapsed, typeof window === 'undefined' ? 0 : window.innerWidth)
+      const viewportWidth = typeof window === 'undefined' ? 0 : window.innerWidth
+      const layout = (reserved ? computeDockedLayout(geometry, viewportWidth) : null)
+        ?? computeFloatingLayout(geometry, collapsed, viewportWidth)
       if (layout === null) return null
       const loading = result.phase === 'loading'
-      // Avoid a loading flash for a non-Git workspace: the first probe stays
-      // invisible until it has an answer.
-      if (loading && !graph) return null
+      const retainedProjectCount = projectDiscovery.identity === discoveryIdentity
+        ? projectDiscovery.projects.length : 0
+      const discoveryFailed = discoveryFailure === discoveryKey && !discoveryUsable
+      const panelHasProjects = projects.length > 1 || retainedProjectCount > 1 || discoveryFailed
+      // Avoid a loading flash for the initial single-project probe, but keep a
+      // multi-project panel mounted while switching so focus and chips survive.
+      if (loading && !graph && !panelHasProjects) return null
 
       const viewable = graph && (graph.status === 'ok' || graph.status === 'empty')
       const notGit = result.phase === 'unavailable' && graph?.reason === 'not-git'
@@ -1257,7 +1563,7 @@ window.__ModuleLoader__.load({
       const hasError = !notGit && (result.phase === 'error' || gitUnavailable
         || (result.phase === 'unavailable' && !hiddenUnavailable))
       const empty = viewable && (graph.status === 'empty' || graph.commits.length === 0)
-      const projectName = viewable ? graph.projectName : notGit ? pathBase(cwd) : ''
+      const projectName = viewable ? graph.projectName : selectedProject?.label ?? pathBase(cwd)
       const current = viewable ? graph.currentBranch : null
       const disclosureLabel = [
         collapsed ? t('expand') : t('collapse'),
@@ -1290,7 +1596,10 @@ window.__ModuleLoader__.load({
               h('span', { className: 'dsh-gbg-title' }, t('title')),
               h('span', { className: 'dsh-gbg-title-short', 'aria-hidden': true }, 'Git'),
               projectName !== '' && h('span', {
-                className: 'dsh-gbg-project', title: graph?.root ?? cwd,
+                className: 'dsh-gbg-project',
+                title: selectedProject?.remote === true
+                  ? `${selectedProject.host}:${selectedPath}`
+                  : graph?.root ?? (selectedPath === '' ? cwd : `${cwd}/${selectedPath}`),
               }, projectName),
               current && h('span', { className: 'dsh-gbg-current', title: t('branch', { name: current }) }, current),
               viewable && !current && h('span', { className: 'dsh-gbg-current' }, t('detached')),
@@ -1298,7 +1607,7 @@ window.__ModuleLoader__.load({
             hasError && h('span', {
               className: 'dsh-gbg-header-error', role: 'img', 'aria-label': t('error'), title: t('error'),
             }, icon('alert')),
-            h('button', {
+            selectedProject?.remote !== true && h('button', {
               type: 'button', ref: manageButtonRef, className: 'dsh-gbg-icon-button',
               'aria-label': t('manageRepo'), title: t('manageRepo'),
               onClick: () => { setManageOpen(true) },
@@ -1309,13 +1618,41 @@ window.__ModuleLoader__.load({
               'aria-label': refreshLabel,
               title: refreshLabel,
               disabled: loading,
-              onClick: () => { setRequestVersion(value => value + 1) },
+              onClick: () => {
+                setRequestVersion(value => value + 1)
+                setDiscoveryRetry(value => value + 1)
+              },
             }, icon('refresh'))),
+          !collapsed && discoveryFailed && h('div', {
+            className: 'dsh-gbg-discovery-error', role: 'alert',
+          },
+            h('span', null, t('projectDiscoveryFailed')),
+            h('button', {
+              type: 'button', className: 'dsh-gbg-retry',
+              onClick: () => { setDiscoveryRetry(value => value + 1) },
+            }, t('retry'))),
+          !collapsed && discoveryUsable && projects.length > 1 && h('div', {
+            className: 'dsh-gbg-projects', role: 'group', 'aria-label': t('projects'),
+          }, projects.map(project => h('button', {
+            key: project.id,
+            type: 'button',
+            'aria-pressed': project.id === selectedProject?.id,
+            'aria-label': `${project.label}: ${project.remote === true
+              ? `${project.host}:${project.path}`
+              : project.path === '' ? cwd : `${cwd}/${project.path}`}`,
+            className: 'dsh-gbg-project-tab',
+            title: project.remote === true
+              ? `${project.host}:${project.path}`
+              : project.path === '' ? cwd : `${cwd}/${project.path}`,
+            onClick: () => { setSelectedProjectId(project.id) },
+          }, project.label))),
           !collapsed && h('div', { className: 'dsh-gbg-body', id: bodyId },
             loading && graph && h('span', { className: 'dsh-gbg-sr-only', role: 'status' }, t('refreshing')),
+            loading && !graph && h('div', { className: 'dsh-gbg-status' },
+              h('span', { role: 'status' }, t('loadingGraph'))),
             notGit && h('div', { className: 'dsh-gbg-status dsh-gbg-missing' },
-              h('span', null, t('gitMissing')),
-              h('button', {
+              h('span', null, selectedProject?.remote === true ? t('remoteNotGit') : t('gitMissing')),
+              selectedProject?.remote !== true && h('button', {
                 type: 'button', className: 'dsh-gbg-create',
                 onClick: () => { setManageOpen(true) },
               }, t('createGit'))),
@@ -1323,25 +1660,32 @@ window.__ModuleLoader__.load({
               h('span', null, t('error')),
               h('button', { type: 'button', className: 'dsh-gbg-retry', onClick: () => { setRequestVersion(value => value + 1) } }, t('retry'))),
             hasError && !viewable && h('div', { className: 'dsh-gbg-status dsh-gbg-error', role: 'alert' },
-              h('span', null, gitUnavailable ? t('gitUnavailable') : t('error')),
+              h('span', null, gitUnavailable
+                ? t('gitUnavailable')
+                : selectedProject?.remote === true
+                  ? t('remoteError', { host: selectedProject.host })
+                  : t('error')),
               h('button', { type: 'button', className: 'dsh-gbg-retry', onClick: () => { setRequestVersion(value => value + 1) } }, t('retry'))),
             empty && h('div', { className: 'dsh-gbg-status' },
               h('span', null, t('empty')),
-              h('button', {
+              selectedProject?.remote !== true && h('button', {
                 type: 'button', className: 'dsh-gbg-secondary',
                 onClick: () => { setManageOpen(true) },
               }, t('manageRepo'))),
             viewable && graph.commits.length > 0 && h(React.Fragment, null,
               h('div', { className: 'dsh-gbg-scroll' }, h(Graph, { graph })),
               h('div', { className: 'dsh-gbg-footer' },
-                h('span', { className: 'dsh-gbg-root-path', title: t('repository', { path: graph.root }) }, graph.root),
+                h('span', {
+                  className: 'dsh-gbg-root-path',
+                  title: t('repository', { path: graph.remoteHost ? `${graph.remoteHost}:${graph.root}` : graph.root }),
+                }, graph.remoteHost ? `${graph.remoteHost}:${graph.root}` : graph.root),
                 h('span', { className: 'dsh-gbg-count' }, commitCountLabel(graph, t))))))
         return h(React.Fragment, null, panel,
-          manageOpen && h(RepoWizard, {
+          manageOpen && selectedProject?.remote !== true && h(RepoWizard, {
           sessionId,
           cwd,
-          initialProjectName: projectName || pathBase(cwd),
-          initialPath: repoPath,
+          initialProjectName: projectName || selectedProject?.label || pathBase(cwd),
+          initialPath: selectedPath,
           t,
           onClose: () => {
             setManageOpen(false)
@@ -1361,13 +1705,30 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'locale', 'sessions', 'sidebarRight'],
+      inject: ['slots', 'locale', 'sessions', 'sidebarRight', 'layout'],
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'git-branch-graph: dictionaries')
         const resetListeners = new Set()
         const geometryStore = createExternalStore(null)
         const getMounted = () => ctx.sidebarRight.mounted.getSnapshot()
         const subscribeMounted = listener => ctx.sidebarRight.mounted.subscribe(listener)
+        const getSidebarExpanded = () => {
+          try { return ctx.sidebarRight.isExpanded() === true } catch { return false }
+        }
+        const reserveRightbar = (width) => {
+          try {
+            if (Number.isFinite(width) && typeof ctx.layout.panels?.setRightbar === 'function') {
+              ctx.layout.panels.setRightbar(width)
+            }
+            ctx.layout.openRightbar(true, false)
+            return true
+          } catch {
+            return false
+          }
+        }
+        const releaseRightbar = () => {
+          try { ctx.layout.closeRightbar() } catch {}
+        }
         const getProjectionFace = sessionId => ctx.sessions.binding(sessionId)?.session.projections.faceOf('gitBranchGraph')
         const getSessionRetention = sessionId => ctx.sessions.retainInfo(sessionId)
         ctx.on('connection/reset', () => {
@@ -1384,6 +1745,9 @@ window.__ModuleLoader__.load({
             getProjectionFace,
             getSessionRetention,
             geometryStore,
+            reserveRightbar,
+            releaseRightbar,
+            getSidebarExpanded,
             subscribeReset(listener) {
               resetListeners.add(listener)
               return () => { resetListeners.delete(listener) }
@@ -1400,7 +1764,8 @@ window.__ModuleLoader__.load({
       },
       __test: {
         layoutGraph, normalizeGraph, shortDate, commitCountLabel, HIDDEN_UNAVAILABLE,
-        computeFloatingLayout, sameGeometry, RepoWizard, dictionaries: { zh, en },
+        computeFloatingLayout, computeDockedLayout, sameGeometry, mergeProjectList, RepoWizard,
+        dictionaries: { zh, en },
       },
     }
   },

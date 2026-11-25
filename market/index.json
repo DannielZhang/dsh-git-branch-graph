@@ -1,0 +1,65 @@
+{
+  "format": 1,
+  "title": {
+    "en": "DannielZhang DSH plugins",
+    "zh": "DannielZhang 的 DSH 插件"
+  },
+  "description": {
+    "en": "Custom DSH bundles maintained by DannielZhang.",
+    "zh": "由 DannielZhang 维护的 DSH 自定义 bundle。"
+  },
+  "metadata": {
+    "categories": {
+      "development": {
+        "title": {
+          "en": "Development",
+          "zh": "开发"
+        }
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-git-branch-graph",
+      "title": {
+        "en": "Git branch graph",
+        "zh": "Git 分支图"
+      },
+      "description": {
+        "en": "Reserves a right-side layout track for a read-only multi-project Git branch graph, with local and SSH-remote project tracking, safe repository creation, and local GitHub/Gitee credentials.",
+        "zh": "在开发任务中为只读的多项目 Git 分支图预留右侧布局轨道；支持本地与 SSH 远端项目跟踪、安全创建仓库，以及本机 GitHub/Gitee 凭据。"
+      },
+      "icon": "../icon.svg",
+      "author": "DannielZhang",
+      "homepage": "https://github.com/DannielZhang/dsh-git-branch-graph",
+      "repository": {
+        "url": "https://github.com/DannielZhang/dsh-git-branch-graph"
+      },
+      "metadata": {
+        "category": "development",
+        "keywords": [
+          "git",
+          "branch",
+          "graph",
+          "repository",
+          "ssh",
+          "multi-project"
+        ]
+      },
+      "versions": [
+        {
+          "version": "1.3.0",
+          "publishTimestamp": 1795628396,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/DannielZhang/dsh-git-branch-graph.git",
+            "commit": "0000000000000000000000000000000000000000"
+          },
+          "engines": {
+            "dsh": ">=0.2.2-rc.3"
+          }
+        }
+      ]
+    }
+  ]
+}

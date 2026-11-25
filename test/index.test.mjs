@@ -50,7 +50,13 @@ test('Host apply registers the projection route and answers for its Session', as
   })
 
   const session = { id: 'route-session' }
-  let state = { development: true, cwd: directory, revision: 1, source: 'session' }
+  let state = {
+    development: true,
+    cwd: directory,
+    revision: 1,
+    activeProjectId: 'root',
+    projects: [{ id: 'root', path: '', label: directory.split('/').at(-1), lastSeq: 0, source: 'session' }],
+  }
   const routes = new Map()
   let definition
   const cleanups = []
@@ -71,13 +77,16 @@ test('Host apply registers the projection route and answers for its Session', as
   await apply(ctx)
   assert.equal(definition.key, 'gitBranchGraph')
   assert.deepEqual([...routes.keys()], [
-    '/api/git-branch-graph', '/api/git-branch-graph/repo',
-    '/api/git-branch-graph/directories', '/api/git-branch-graph/manage',
+    '/api/git-branch-graph', '/api/git-branch-graph/projects',
+    '/api/git-branch-graph/repo', '/api/git-branch-graph/directories',
+    '/api/git-branch-graph/credentials', '/api/git-branch-graph/manage',
   ])
   const route = routes.get('/api/git-branch-graph')
   assert.deepEqual(route.methods, ['GET'])
+  assert.deepEqual(routes.get('/api/git-branch-graph/projects').methods, ['GET'])
   assert.deepEqual(routes.get('/api/git-branch-graph/repo').methods, ['GET'])
   assert.deepEqual(routes.get('/api/git-branch-graph/directories').methods, ['GET'])
+  assert.deepEqual(routes.get('/api/git-branch-graph/credentials').methods, ['GET'])
   assert.deepEqual(routes.get('/api/git-branch-graph/manage').methods, ['POST'])
 
   const response = await route.fetch(new Request('http://dsh.invalid/api/git-branch-graph?sessionId=route-session'))
@@ -87,6 +96,14 @@ test('Host apply registers the projection route and answers for its Session', as
   assert.equal(graph.currentBranch, 'main')
   assert.equal(graph.commits.length, 1)
   assert.equal(graph.projectName, directory.split('/').at(-1))
+
+  const projectsResponse = await routes.get('/api/git-branch-graph/projects').fetch(new Request(
+    'http://dsh.invalid/api/git-branch-graph/projects?sessionId=route-session',
+  ))
+  const projects = await projectsResponse.json()
+  assert.equal(projects.status, 'ok')
+  assert.equal(projects.activeProjectId, 'root')
+  assert.deepEqual(projects.projects.map(project => project.path), [''])
 
   state = { ...state, development: false }
   const hidden = await route.fetch(new Request('http://dsh.invalid/api/git-branch-graph?sessionId=route-session'))
@@ -99,6 +116,102 @@ test('Host apply registers the projection route and answers for its Session', as
   for (const cleanup of cleanups) await cleanup()
 })
 
+test('projects route normalizes subdirectories to repository roots and keeps recency', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-git-projects-'))
+  t.after(async () => { await rm(directory, { recursive: true, force: true }) })
+  for (const name of ['alpha', 'beta']) {
+    const root = join(directory, name)
+    await mkdir(join(root, 'src'), { recursive: true })
+    execFileSync('git', ['init', '-b', 'main'], { cwd: root })
+    await writeFile(join(root, 'README.md'), `# ${name}\n`)
+    execFileSync('git', ['add', 'README.md'], { cwd: root })
+    execFileSync('git', ['commit', '-m', 'Initial commit'], {
+      cwd: root,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'Route Test', GIT_AUTHOR_EMAIL: 'route@example.invalid',
+        GIT_COMMITTER_NAME: 'Route Test', GIT_COMMITTER_EMAIL: 'route@example.invalid',
+      },
+    })
+  }
+
+  const state = {
+    development: true,
+    cwd: directory,
+    revision: 1,
+    activeProjectId: 'alpha/src',
+    projects: [
+      { id: 'alpha/src', path: 'alpha/src', label: 'src', lastSeq: 5, source: 'tool' },
+      { id: 'beta', path: 'beta', label: 'beta', lastSeq: 4, source: 'tool' },
+      { id: 'root', path: '', label: directory.split('/').at(-1), lastSeq: 0, source: 'session' },
+    ],
+  }
+  const routes = new Map()
+  const cleanups = []
+  const ctx = {
+    sessionProjections: { async register() { return { stateOf: () => state } } },
+    sessions: { get: id => id === 'projects-session' ? { id } : undefined },
+    subprocess: localSubprocess(),
+    connection: { fetch: { register(value) { routes.set(value.path, value); return async () => {} } } },
+    effect(fn) { cleanups.push(fn()) },
+    logger: { warn() {} },
+  }
+  await apply(ctx)
+  const response = await routes.get('/api/git-branch-graph/projects').fetch(new Request(
+    'http://dsh.invalid/api/git-branch-graph/projects?sessionId=projects-session',
+  ))
+  const value = await response.json()
+  assert.equal(value.status, 'ok')
+  assert.deepEqual(value.projects.map(project => project.path), ['alpha', 'beta', ''])
+  assert.equal(value.activeProjectId, 'alpha')
+  for (const cleanup of cleanups) await cleanup()
+})
+
+test('projects route discovers remote projects from an SSH wrapper without connecting', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsh-git-remote-projects-'))
+  t.after(async () => { await rm(directory, { recursive: true, force: true }) })
+  await writeFile(join(directory, 'rssh.sh'), [
+    '#!/bin/bash',
+    'KEY="/Users/me/work/.ssh/wsl_sradmin"',
+    'HOST="sradmin@192.168.134.165"',
+    'PORT="2333"',
+    'exec ssh -i "$KEY" -p $PORT "$HOST" "$*"',
+  ].join('\n'))
+  const state = {
+    development: true,
+    cwd: directory,
+    revision: 1,
+    activeProjectId: 'root',
+    projects: [{ id: 'root', path: '', label: directory.split('/').at(-1), lastSeq: 0, source: 'session' }],
+    remoteHints: [{
+      seq: 9,
+      text: "./rssh.sh 'cd /home/sradmin/vllm && git log'",
+    }],
+  }
+  const routes = new Map()
+  const cleanups = []
+  const ctx = {
+    sessionProjections: { async register() { return { stateOf: () => state } } },
+    sessions: { get: id => id === 'remote-session' ? { id } : undefined },
+    subprocess: localSubprocess(),
+    connection: { fetch: { register(value) { routes.set(value.path, value); return async () => {} } } },
+    effect(fn) { cleanups.push(fn()) },
+    logger: { warn() {} },
+  }
+  await apply(ctx)
+  const response = await routes.get('/api/git-branch-graph/projects').fetch(new Request(
+    'http://dsh.invalid/api/git-branch-graph/projects?sessionId=remote-session',
+  ))
+  const value = await response.json()
+  assert.equal(value.status, 'ok')
+  const remote = value.projects.find(project => project.remote === true)
+  assert.equal(value.activeProjectId, remote.id)
+  assert.equal(remote.path, '/home/sradmin/vllm')
+  assert.equal(remote.label, 'vllm')
+  assert.equal(remote.host, '192.168.134.165')
+  for (const cleanup of cleanups) await cleanup()
+})
+
 test('Host preview and manage routes can initialize a safe local repository', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'dsh-git-manage-'))
   t.after(async () => { await rm(directory, { recursive: true, force: true }) })
@@ -108,7 +221,13 @@ test('Host preview and manage routes can initialize a safe local repository', as
   await writeFile(join(project, '.env'), 'SECRET=nope\n')
 
   const session = { id: 'manage-session' }
-  const state = { development: true, cwd: directory, revision: 1, source: 'session' }
+  const state = {
+    development: true,
+    cwd: directory,
+    revision: 1,
+    activeProjectId: 'root',
+    projects: [{ id: 'root', path: '', label: directory.split('/').at(-1), lastSeq: 0, source: 'session' }],
+  }
   const routes = new Map()
   const cleanups = []
   const ctx = {

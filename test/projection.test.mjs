@@ -2,7 +2,14 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createProjectionDefinition, foldProject, __test } from '../projection.js'
 
-const initial = { development: false, cwd: '/workspace/main', revision: 0, source: 'session' }
+const initial = {
+  development: false,
+  cwd: '/workspace/main',
+  revision: 0,
+  activeProjectId: 'root',
+  projects: [{ id: 'root', path: '', label: 'main', lastSeq: 0, source: 'session' }],
+  remoteHints: [],
+}
 const user = text => ({
   type: 'user/message',
   data: { source: { kind: 'user' }, content: [{ type: 'text', text }] },
@@ -11,7 +18,11 @@ const call = (name, args = {}) => ({ type: 'tool/call', data: { name, arguments:
 
 test('session header supplies the initial project without marking development', () => {
   const definition = createProjectionDefinition()
-  assert.deepEqual(definition.init({ cwd: '/repo' }, 0), { ...initial, cwd: '/repo' })
+  assert.deepEqual(definition.init({ cwd: '/repo' }, 0), {
+    ...initial,
+    cwd: '/repo',
+    projects: [{ id: 'root', path: '', label: 'repo', lastSeq: 0, source: 'session' }],
+  })
   assert.equal(definition.wire.summary, false)
   assert.equal(definition.wire.viewSchema.parse(initial), initial)
 })
@@ -32,12 +43,49 @@ test('ordinary conversation and malformed tool JSON preserve state identity', ()
   assert.equal(foldProject(initial, { type: 'turn/start', data: { turn: 1 } }), initial)
 })
 
-test('tool workdir changes the selected project and turn end refreshes it', () => {
-  const next = foldProject(initial, call('bash', { command: 'git status', workdir: '/workspace/other' }))
-  assert.deepEqual(next, { development: true, cwd: '/workspace/other', revision: 1, source: 'tool' })
+test('tool workdir adds a recent project and keeps the session root', () => {
+  const next = foldProject(initial, call('bash', { command: 'git status', workdir: '/workspace/main/other' }))
+  assert.equal(next.development, true)
+  assert.equal(next.cwd, '/workspace/main')
+  assert.equal(next.revision, 1)
+  assert.equal(next.activeProjectId, 'other')
+  assert.deepEqual(next.projects.map(project => project.id), ['other', 'root'])
+  assert.equal(next.projects[0].label, 'other')
   const ended = foldProject(next, { type: 'turn/end', data: {} })
   assert.equal(ended.revision, 2)
-  assert.equal(ended.cwd, '/workspace/other')
+  assert.equal(ended.activeProjectId, 'other')
+})
+
+test('multiple project workdirs stay available and move to the front when revisited', () => {
+  const first = foldProject(initial, call('bash', { workdir: '/workspace/main/alpha' }))
+  const second = foldProject(first, call('bash', { workdir: '/workspace/main/beta' }))
+  assert.deepEqual(second.projects.map(project => project.id), ['beta', 'alpha', 'root'])
+  assert.equal(second.activeProjectId, 'beta')
+  const revisited = foldProject(second, call('bash', { workdir: '/workspace/main/alpha' }))
+  assert.deepEqual(revisited.projects.map(project => project.id), ['alpha', 'beta', 'root'])
+  assert.equal(revisited.activeProjectId, 'alpha')
+  assert.equal(foldProject(revisited, call('bash', { workdir: '/tmp/outside' })).activeProjectId, 'alpha')
+})
+
+test('absolute project paths mentioned in user text are tracked', () => {
+  const next = foldProject(initial, user('同时修改 /workspace/main/alpha 和 /workspace/main/beta 的代码'))
+  assert.equal(next.activeProjectId, 'beta')
+  assert.deepEqual(next.projects.map(project => project.id), ['beta', 'alpha', 'root'])
+  assert.deepEqual(
+    __test.extractAbsolutePaths('见 /workspace/main/src/app.ts 和 /workspace/main/beta'),
+    ['/workspace/main/src', '/workspace/main/beta'],
+  )
+})
+
+test('run_code SSH wrappers record bounded remote hints without exposing them on the wire', () => {
+  const definition = createProjectionDefinition()
+  const next = foldProject(initial, call('run_code', {
+    code: "await tools.bash({ command: \"./rssh.sh 'cd /home/sradmin/vllm && git log'\" })",
+  }))
+  assert.equal(next.development, true)
+  assert.equal(next.remoteHints.length, 1)
+  assert.match(next.remoteHints[0].text, /\/home\/sradmin\/vllm/)
+  assert.equal(definition.wire.view(next).remoteHints, undefined)
 })
 
 test('file tools select their containing repository and directory tools keep the directory', () => {

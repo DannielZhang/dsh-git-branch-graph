@@ -2,6 +2,7 @@
 
 import { homedir } from 'node:os'
 import { basename } from 'node:path'
+import { shellQuote } from './remote.js'
 
 const TIMEOUT_MS = 8_000
 const STDOUT_MAX_BYTES = 1024 * 1024
@@ -113,6 +114,141 @@ export class GitBranchReader {
       stdout: stdout.text,
       stderr: handle.collected.stderr?.readFrom(0).text ?? '',
     }
+  }
+
+  async sshExecutable(signal) {
+    if (this.sshPromise === undefined) {
+      this.sshPromise = this.ctx.subprocess.resolveExecutable('ssh', undefined, signal)
+        .catch(() => null)
+        .then(value => value ?? 'ssh')
+    }
+    return this.sshPromise
+  }
+
+  async runRemoteCommand(connection, remoteCommand, signal, timeoutMs = TIMEOUT_MS) {
+    if (typeof connection?.host !== 'string' || connection.host === ''
+      || (connection.user !== null && connection.user !== undefined
+        && (typeof connection.user !== 'string' || !/^[a-zA-Z0-9._-]+$/.test(connection.user)))
+      || !Number.isInteger(connection.port) || connection.port < 1 || connection.port > 65535
+      || (connection.key !== null && connection.key !== undefined
+        && (typeof connection.key !== 'string' || !connection.key.startsWith('/') || connection.key.includes('\0')))) {
+      throw new Error('Invalid remote connection.')
+    }
+    const executable = await this.sshExecutable(signal)
+    const args = [
+      '-T', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=8',
+      '-o', 'StrictHostKeyChecking=yes', '-o', 'ServerAliveInterval=5',
+      '-o', 'ServerAliveCountMax=1', '-o', 'LogLevel=ERROR',
+    ]
+    if (connection.key) args.push('-i', connection.key)
+    if (connection.port !== 22) args.push('-p', String(connection.port))
+    args.push(`${connection.user ? `${connection.user}@` : ''}${connection.host}`, remoteCommand)
+    const timeout = AbortSignal.timeout(timeoutMs)
+    const combined = AbortSignal.any([signal, timeout])
+    const handle = this.ctx.subprocess.spawn({
+      argv: [executable, ...args],
+      cwd: homedir(),
+      stdio: {
+        stdin: 'ignore',
+        stdout: { maxBytes: STDOUT_MAX_BYTES },
+        stderr: { maxBytes: STDERR_MAX_BYTES },
+      },
+      env: { HOME: homedir(), LC_ALL: 'C', SSH_ASKPASS: '/usr/bin/false', DISPLAY: '' },
+      graceMs: 1_000,
+      signal: combined,
+    })
+    const outcome = await handle.done
+    if (combined.aborted) {
+      throw new Error(timeout.aborted ? 'Remote Git command timed out.' : 'Remote Git command was cancelled.')
+    }
+    const stdout = handle.collected.stdout?.readFrom(0) ?? { text: '', lossy: false }
+    if (stdout.lossy) throw new Error('Remote Git output exceeded the 1 MiB safety limit.')
+    return {
+      exitCode: outcome.exitCode,
+      stdout: stdout.text,
+      stderr: handle.collected.stderr?.readFrom(0).text ?? '',
+    }
+  }
+
+  async remoteGit(connection, path, args, signal) {
+    const command = `GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 git -C ${shellQuote(path)} ${args.map(shellQuote).join(' ')}`
+    return this.runRemoteCommand(connection, command, signal)
+  }
+
+  /** Resolve remote repository roots for candidate project directories. */
+  async resolveRemoteRoots(connection, paths, signal) {
+    if (paths.length === 0) return []
+    const list = paths.slice(0, 12)
+    const command = `set -- ${list.map(shellQuote).join(' ')}; for p in "$@"; do `
+      + 'r=$(GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 git -C "$p" rev-parse --show-toplevel 2>/dev/null) '
+      + '&& printf \'%s\\t%s\\n\' "$p" "$r"; '
+      + 'for d in "$p"/*; do [ -d "$d" ] || continue; '
+      + 'r=$(GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 git -C "$d" rev-parse --show-toplevel 2>/dev/null) '
+      + '&& printf \'%s\\t%s\\n\' "$d" "$r"; done; done'
+    const result = await this.runRemoteCommand(connection, command, signal, 15_000)
+    if (result.exitCode !== 0) throw new Error('Remote project discovery failed.')
+    const seen = new Set()
+    const roots = []
+    for (const line of result.stdout.split(/\r?\n/)) {
+      const index = line.indexOf('\t')
+      if (index <= 0) continue
+      const source = line.slice(0, index)
+      const root = line.slice(index + 1).trim()
+      if (root === '' || seen.has(root)) continue
+      seen.add(root)
+      roots.push({ source, root })
+    }
+    return roots
+  }
+
+  /** Read a repository on a remote host using a fixed, read-only Git command. */
+  async readRemote(connection, path, signal) {
+    const located = await this.remoteGit(connection, path, ['rev-parse', '--show-toplevel'], signal)
+    if (located.exitCode !== 0) {
+      if (/not a git repository/i.test(located.stderr)) {
+        return { status: 'unavailable', reason: 'not-git', remote: true, remoteHost: connection.host }
+      }
+      if (/git: (?:command )?not found|git: not found/i.test(located.stderr)) {
+        return { status: 'unavailable', reason: 'git-unavailable', remote: true, remoteHost: connection.host }
+      }
+      throw new Error(`remote git rev-parse failed: ${located.stderr.trim()}`)
+    }
+    const root = located.stdout.split('\n')[0].trim()
+    if (root === '') throw new Error('remote git rev-parse returned an empty repository root.')
+    const branchResult = await this.remoteGit(connection, root, ['symbolic-ref', '--short', '-q', 'HEAD'], signal)
+    const currentBranch = branchResult.exitCode === 0 ? branchResult.stdout.trim() : null
+    const logged = await this.remoteGit(connection, root, [
+      'log', 'HEAD', '--branches', '--remotes', '--tags', '--topo-order',
+      `--max-count=${MAX_COMMITS}`, `--format=${FORMAT}`,
+    ], signal)
+    if (logged.exitCode !== 0) {
+      if (/does not have any commits yet|no commits yet|bad default revision|ambiguous argument 'HEAD'|unknown revision/i.test(logged.stderr)) {
+        return {
+          status: 'empty', root, projectName: projectName(root), currentBranch, commits: [],
+          remote: true, remoteHost: connection.host,
+        }
+      }
+      throw new Error(`remote git log failed: ${logged.stderr.trim()}`)
+    }
+    return {
+      status: 'ok',
+      root,
+      projectName: projectName(root),
+      currentBranch,
+      commits: parseGitLog(logged.stdout),
+      truncated: logged.stdout.split('\n').filter(Boolean).length >= MAX_COMMITS,
+      remote: true,
+      remoteHost: connection.host,
+    }
+  }
+
+  /** Resolve the repository root enclosing a Session-derived directory. */
+  async root(cwd, signal) {
+    const executable = await this.executable(signal)
+    if (executable === null) return null
+    const result = await this.run(executable, cwd, ['rev-parse', '--show-toplevel'], signal)
+    const root = result.stdout.trim()
+    return result.exitCode === 0 && root !== '' ? root : null
   }
 
   /** Read the repository enclosing one Session-derived directory. */

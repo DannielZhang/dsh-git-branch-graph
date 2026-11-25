@@ -1,4 +1,4 @@
 - insert:
     - id: git-branch-graph
-      name: '@local/dsh-git-branch-graph'
+      name: 'dsh-git-branch-graph'
       config: {}

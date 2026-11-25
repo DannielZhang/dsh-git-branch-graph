@@ -100,3 +100,42 @@ test('reader loads a real repository containing a branch and merge', async t => 
   assert.ok(merge.refs.includes('main'))
   assert.ok(graph.commits.some(commit => commit.refs.includes('feature')))
 })
+
+test('remote reader executes only fixed read-only Git commands over SSH', async () => {
+  const calls = []
+  const ctx = {
+    subprocess: {
+      async resolveExecutable(name) { return name },
+      spawn(spec) {
+        calls.push(spec.argv)
+        const remote = spec.argv.at(-1)
+        let stdout = ''
+        if (remote.includes('rev-parse')) stdout = '/home/sradmin/vllm\n'
+        else if (remote.includes('symbolic-ref')) stdout = 'main\n'
+        else if (remote.includes('log')) stdout = `${H}\x1f\x1fHEAD -> main, origin/main\x1f2026-11-23T12:00:00+08:00\x1fTester\x1fRemote commit\n`
+        return {
+          collected: {
+            stdout: { readFrom: () => ({ text: stdout, lossy: false }) },
+            stderr: { readFrom: () => ({ text: '', lossy: false }) },
+          },
+          done: Promise.resolve({ exitCode: 0, signal: null }),
+        }
+      },
+    },
+  }
+  const reader = new GitBranchReader(ctx)
+  const graph = await reader.readRemote({
+    host: '192.168.134.165', user: 'sradmin', port: 2333, key: '/Users/me/.ssh/key',
+  }, '/home/sradmin/vllm', new AbortController().signal)
+  assert.equal(graph.status, 'ok')
+  assert.equal(graph.root, '/home/sradmin/vllm')
+  assert.equal(graph.projectName, 'vllm')
+  assert.equal(graph.currentBranch, 'main')
+  assert.equal(graph.commits[0].subject, 'Remote commit')
+  assert.equal(graph.remoteHost, '192.168.134.165')
+  assert.ok(calls.every(argv => argv[0] === 'ssh'))
+  assert.ok(calls.every(argv => argv.includes('StrictHostKeyChecking=yes')))
+  assert.ok(calls.every(argv => argv.includes('-p') && argv.includes('2333')))
+  assert.ok(calls.every(argv => argv.at(-1).startsWith('GIT_TERMINAL_PROMPT=0 ')))
+  assert.ok(!calls.some(argv => argv.join(' ').includes('rm -rf')))
+})

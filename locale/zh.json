@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "Git 分支图",
-    "description": "在处理开发任务时，于对话右侧空白区展开只读的 Git 分支图；无法读取 Git 时改为安全的创建向导。向导可预览所选项目子目录，限制文件数量与体积，通过 .git/info/exclude 排除密钥和依赖，创建首个提交，并可新建或推送到 GitHub、Gitee、自建/已有仓库。Personal Access Token 仅在请求内存中使用，不保存，也不写入 .git/config。需要活动的 Session 和本机 Git。停用此 bundle 会移除面板、仓库操作和需认证的路由。"
+    "description": "在处理开发任务时预留右侧布局轨道展开只读 Git 分支图，对话列向左移动，并可用右侧栏原生拖拽条调宽；自动跟踪同一会话中最近修改的本地和 SSH 远端项目，归一化到各自 Git 仓库根并提供项目切换。无法读取 Git 时改为安全的创建向导。向导可浏览并预览项目子目录，限制文件数量与体积，通过 .git/info/exclude 排除密钥和依赖，自动为空仓库创建首个提交，并可新建或推送到 GitHub、Gitee、自建/已有仓库。选择 GitHub/Gitee 时会自动发现本机 Git credential helper、~/.git-credentials、GitHub CLI 和环境变量凭据，多账号可选择；Token 只在 Host 内存中使用，不发送到浏览器、不保存、也不写入 .git/config。需要活动的 Session 和本机 Git。停用此 bundle 会移除面板、仓库操作和需认证的路由。",
+    "detail": "docs/DETAIL.zh.md"
   }
 }
