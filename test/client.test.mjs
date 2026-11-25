@@ -8,11 +8,12 @@ function loadClient() {
   const window = { __ModuleLoader__: { load(value) { declaration = value } } }
   vm.runInNewContext(readFileSync(new URL('../client.js', import.meta.url), 'utf8'), { window, console })
   const React = { createElement: (type, props, ...children) => ({ type, props, children }) }
-  return declaration.factory(name => {
+  const api = declaration.factory(name => {
     if (name === 'react') return React
     if (name === 'react-dom') return { createPortal: node => node }
     throw new Error(`Unexpected module ${name}`)
   })
+  return Object.assign(api, { moduleId: declaration.id })
 }
 
 const client = loadClient()
@@ -91,6 +92,11 @@ test('docked layout fills the reserved right track and follows its width', () =>
   const narrower = { ...geometry, right: 1368 }
   assert.equal(computeDockedLayout(narrower, 1728).width, 344)
   assert.equal(computeDockedLayout({ ...geometry, right: 1500 }, 1728), null)
+})
+
+test('client module id matches the published package name', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.equal(client.moduleId, manifest.name)
 })
 
 test('Chinese and English client dictionaries expose the same keys', () => {

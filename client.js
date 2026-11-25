@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: '@local/dsh-git-branch-graph',
+  id: 'dsh-git-branch-graph',
   factory(require) {
     const React = require('react')
     const { createPortal } = require('react-dom')
