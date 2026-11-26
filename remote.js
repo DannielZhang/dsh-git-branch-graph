@@ -232,6 +232,22 @@ function remotePathPrefixes(path) {
   return prefixes
 }
 
+/** Absolute directories explicitly entered or addressed by Git in a command. */
+export function extractExplicitRemotePaths(text) {
+  const found = []
+  const seen = new Set()
+  for (const match of text.matchAll(/\b(?:cd|pushd|git\s+-C)\s+((?:"[^"]+"|'[^']+'|[^\s;&|]+))/g)) {
+    const value = match[1].replace(/^['"]|['"]$/g, '').replace(/\\/g, '')
+    if (!REMOTE_ROOTS.test(value) || value.includes('$') || value.includes('*')) continue
+    if (!seen.has(value)) {
+      seen.add(value)
+      found.push(value)
+    }
+    if (found.length >= 4) break
+  }
+  return found
+}
+
 /** Derive bounded, directory-shaped remote project candidates from a command. */
 export function extractRemotePaths(text) {
   const ordered = []

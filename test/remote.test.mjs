@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  extractRemotePaths, extractScriptReferences, parseSshInvocations, parseWrapperScript,
-  remoteProjectId,
+  extractExplicitRemotePaths, extractRemotePaths, extractScriptReferences, parseSshInvocations,
+  parseWrapperScript, remoteProjectId,
 } from '../remote.js'
 
 test('parses direct SSH options without accepting shell-injected destinations', () => {
@@ -56,6 +56,12 @@ test('extracts wrapper references and deepest remote project directories', () =>
   assert.ok(paths.includes('/home/sradmin/llamaCpp/llama.cpp'))
   assert.ok(paths.includes('/home/sradmin/docling'))
   assert.ok(!paths.includes('/home/sradmin/vllm/vllm_env'))
+})
+
+test('explicit cd paths identify project roots without globs or variables', () => {
+  assert.deepEqual(extractExplicitRemotePaths(
+    "cd /home/sradmin/dsh_ws_dev/AuditSystem && git status; cd /home/sradmin/\$x; cd /home/sradmin/*",
+  ), ['/home/sradmin/dsh_ws_dev/AuditSystem'])
 })
 
 test('remote project ids are stable and connection-specific', () => {

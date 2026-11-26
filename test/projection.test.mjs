@@ -9,6 +9,7 @@ const initial = {
   activeProjectId: 'root',
   projects: [{ id: 'root', path: '', label: 'main', lastSeq: 0, source: 'session' }],
   remoteHints: [],
+  remoteProjects: [],
 }
 const user = text => ({
   type: 'user/message',
@@ -86,6 +87,21 @@ test('run_code SSH wrappers record bounded remote hints without exposing them on
   assert.equal(next.remoteHints.length, 1)
   assert.match(next.remoteHints[0].text, /\/home\/sradmin\/vllm/)
   assert.equal(definition.wire.view(next).remoteHints, undefined)
+  assert.equal(definition.wire.view(next).remoteProjects, undefined)
+})
+
+test('direct ProxyJump commands accumulate compact remote project candidates', () => {
+  const definition = createProjectionDefinition()
+  const next = foldProject(initial, call('bash', {
+    command: "ssh -o BatchMode=yes -J root@1.15.124.163 -p 2333 sradmin@10.66.66.2 'cd /home/sradmin/dsh_ws_dev/AuditSystem && git status'",
+  }))
+  assert.equal(next.remoteProjects.length, 1)
+  assert.equal(next.remoteProjects[0].path, '/home/sradmin/dsh_ws_dev/AuditSystem')
+  assert.deepEqual(next.remoteProjects[0].connection.jumps, ['root@1.15.124.163'])
+  assert.equal(next.remoteProjects[0].connection.port, 2333)
+  const wire = definition.wire.view(next)
+  assert.equal(wire.remoteProjects, undefined)
+  assert.equal(wire.remoteHints, undefined)
 })
 
 test('file tools select their containing repository and directory tools keep the directory', () => {

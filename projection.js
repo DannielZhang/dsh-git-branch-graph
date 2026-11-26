@@ -1,6 +1,7 @@
 /** Log-derived project list and refresh signals for the Git branch graph. */
 
 import { basename, isAbsolute, relative, sep } from 'node:path'
+import { extractExplicitRemotePaths, parseSshInvocations } from './remote.js'
 
 const DEVELOPMENT_TOOLS = new Set([
   'bash', 'pwsh', 'read', 'write', 'edit', 'glob', 'grep', 'working_directory',
@@ -107,6 +108,47 @@ function nextSeq(state, event) {
   return Number.isSafeInteger(event.seq) ? event.seq : state.revision + 1
 }
 
+const MAX_REMOTE_PROJECTS = 32
+
+function compactConnection(connection) {
+  return {
+    host: connection.host,
+    user: connection.user ?? null,
+    port: connection.port,
+    jumps: connection.jumps ?? [],
+    key: connection.key,
+  }
+}
+
+function addRemoteProjects(state, args, seq) {
+  const candidates = []
+  for (const text of collectStrings(args)) {
+    if (text.length < 20 || !/\bssh\b/.test(text)) continue
+    const connections = parseSshInvocations(text)
+    if (connections.length === 0) continue
+    const paths = extractExplicitRemotePaths(text)
+    if (paths.length === 0) continue
+    for (const connection of connections) {
+      const compact = compactConnection(connection)
+      for (const path of paths) candidates.push({ connection: compact, path, lastSeq: seq })
+    }
+  }
+  if (candidates.length === 0) return state
+  const merged = new Map()
+  for (const candidate of [...(state.remoteProjects ?? []), ...candidates]) {
+    const key = `${candidate.connection.jumps?.join(',') ?? ''}|`
+      + `${candidate.connection.user ?? ''}@${candidate.connection.host}:${candidate.connection.port}|`
+      + `${candidate.connection.key ?? ''}|${candidate.path}`
+    const previous = merged.get(key)
+    if (previous === undefined || previous.lastSeq < candidate.lastSeq) merged.set(key, candidate)
+  }
+  const remoteProjects = [...merged.values()]
+    .sort((left, right) => right.lastSeq - left.lastSeq)
+    .slice(0, MAX_REMOTE_PROJECTS)
+  if (JSON.stringify(remoteProjects) === JSON.stringify(state.remoteProjects ?? [])) return state
+  return { ...state, remoteProjects }
+}
+
 function addRemoteHints(state, args, seq) {
   const hints = []
   for (const text of collectStrings(args)) {
@@ -169,6 +211,10 @@ export function foldProject(state, event) {
     if (hinted !== next) {
       next = { ...hinted, development: true }
     }
+    const projected = addRemoteProjects(next, args, seq)
+    if (projected !== next) {
+      next = { ...projected, development: true }
+    }
     if (next === state) return state
     return update(next, {})
   }
@@ -196,6 +242,22 @@ function validRemoteHint(value) {
     && typeof value.text === 'string' && value.text.length > 0
 }
 
+function validRemoteConnection(value) {
+  return isRecord(value)
+    && typeof value.host === 'string' && value.host !== ''
+    && (typeof value.user === 'string' || value.user === null)
+    && Number.isSafeInteger(value.port) && value.port > 0 && value.port <= 65535
+    && Array.isArray(value.jumps) && value.jumps.every(jump => typeof jump === 'string')
+    && (typeof value.key === 'string' || value.key === null)
+}
+
+function validRemoteProject(value) {
+  return isRecord(value)
+    && validRemoteConnection(value.connection)
+    && typeof value.path === 'string' && value.path.startsWith('/')
+    && Number.isSafeInteger(value.lastSeq) && value.lastSeq >= 0
+}
+
 function validState(value) {
   return isRecord(value)
     && typeof value.development === 'boolean'
@@ -205,6 +267,8 @@ function validState(value) {
     && Array.isArray(value.projects) && value.projects.every(validProject)
     && (value.remoteHints === undefined
       || (Array.isArray(value.remoteHints) && value.remoteHints.every(validRemoteHint)))
+    && (value.remoteProjects === undefined
+      || (Array.isArray(value.remoteProjects) && value.remoteProjects.every(validRemoteProject)))
 }
 
 const stateSchema = {
@@ -217,7 +281,7 @@ const stateSchema = {
 export function createProjectionDefinition() {
   return {
     key: 'gitBranchGraph',
-    stateVersion: 3,
+    stateVersion: 4,
     stateSchema,
     init(header) {
       const cwd = typeof header.cwd === 'string' ? header.cwd : null
@@ -235,13 +299,14 @@ export function createProjectionDefinition() {
         activeProjectId: projects[0]?.id ?? null,
         projects,
         remoteHints: [],
+        remoteProjects: [],
       }
     },
     apply: foldProject,
     wire: {
       viewSchema: stateSchema,
       view: (state) => {
-        const { remoteHints, ...view } = state
+        const { remoteHints, remoteProjects, ...view } = state
         return view
       },
       // Full values belong to the opened Session, not every sidebar row.

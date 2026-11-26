@@ -109,6 +109,17 @@ export async function apply(ctx) {
 
   const discoverRemotes = async (state, signal, sessionId) => {
     const groups = new Map()
+    for (const candidate of state.remoteProjects ?? []) {
+      if (candidate?.connection === undefined) continue
+      const key = connectionKey(candidate.connection)
+      let group = groups.get(key)
+      if (group === undefined) {
+        group = { connection: candidate.connection, paths: new Map(), seq: candidate.lastSeq }
+        groups.set(key, group)
+      }
+      group.paths.set(candidate.path, Math.max(candidate.lastSeq, group.paths.get(candidate.path) ?? 0))
+      group.seq = Math.max(group.seq, candidate.lastSeq)
+    }
     for (const hint of state.remoteHints ?? []) {
       const paths = extractRemotePaths(hint.text)
       if (paths.length === 0) continue
