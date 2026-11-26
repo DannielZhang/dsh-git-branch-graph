@@ -131,7 +131,11 @@ export class GitBranchReader {
         && (typeof connection.user !== 'string' || !/^[a-zA-Z0-9._-]+$/.test(connection.user)))
       || !Number.isInteger(connection.port) || connection.port < 1 || connection.port > 65535
       || (connection.key !== null && connection.key !== undefined
-        && (typeof connection.key !== 'string' || !connection.key.startsWith('/') || connection.key.includes('\0')))) {
+        && (typeof connection.key !== 'string' || !connection.key.startsWith('/') || connection.key.includes('\0')))
+      || (connection.jumps !== undefined && connection.jumps !== null
+        && (!Array.isArray(connection.jumps)
+          || connection.jumps.some(jump => typeof jump !== 'string'
+            || !/^[A-Za-z0-9._-]+@?[A-Za-z0-9._:[\]-]+(?::\d{1,5})?$/.test(jump))))) {
       throw new Error('Invalid remote connection.')
     }
     const executable = await this.sshExecutable(signal)
@@ -140,6 +144,9 @@ export class GitBranchReader {
       '-o', 'StrictHostKeyChecking=yes', '-o', 'ServerAliveInterval=5',
       '-o', 'ServerAliveCountMax=1', '-o', 'LogLevel=ERROR',
     ]
+    if (Array.isArray(connection.jumps) && connection.jumps.length > 0) {
+      args.push('-J', connection.jumps.join(','))
+    }
     if (connection.key) args.push('-i', connection.key)
     if (connection.port !== 22) args.push('-p', String(connection.port))
     args.push(`${connection.user ? `${connection.user}@` : ''}${connection.host}`, remoteCommand)

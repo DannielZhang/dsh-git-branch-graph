@@ -90,7 +90,7 @@ export async function apply(ctx) {
   const lifetime = new AbortController()
   const pending = new Set()
 
-  const connectionKey = connection => `${connection.user ?? ''}@${connection.host}:${connection.port}:${connection.key ?? ''}`
+  const connectionKey = connection => `${(connection.jumps ?? []).join(',')}|${connection.user ?? ''}@${connection.host}:${connection.port}:${connection.key ?? ''}`
 
   const scriptConnections = async (scriptPath) => {
     try {

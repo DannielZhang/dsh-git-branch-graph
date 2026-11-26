@@ -12,10 +12,21 @@ test('parses direct SSH options without accepting shell-injected destinations', 
   )
   assert.deepEqual(connection, {
     host: '192.168.134.165', user: 'sradmin', port: 2333, key: '/Users/me/.ssh/key',
-    remoteCommand: 'cd /home/sradmin/vllm && git status',
+    jumps: [], remoteCommand: 'cd /home/sradmin/vllm && git status',
   })
   assert.equal(parseSshInvocations('ssh -p 70000 user@host').length, 0)
   assert.equal(parseSshInvocations('ssh -p 22 -o ProxyCommand=x user@host').length, 1)
+})
+
+test('parses a ProxyJump hop for a two-hop SSH target', () => {
+  const [connection] = parseSshInvocations(
+    'ssh -o BatchMode=yes -J root@1.15.124.163 -p 2333 sradmin@10.66.66.2 '
+      + '"cd /home/sradmin/dsh_ws_dev/AuditSystem && git status"',
+  )
+  assert.deepEqual(connection.jumps, ['root@1.15.124.163'])
+  assert.equal(connection.user, 'sradmin')
+  assert.equal(connection.host, '10.66.66.2')
+  assert.equal(connection.port, 2333)
 })
 
 test('parses variables and the destination from an SSH wrapper script', () => {

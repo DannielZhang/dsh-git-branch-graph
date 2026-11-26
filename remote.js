@@ -71,6 +71,42 @@ function tokenizeShell(text) {
   return tokens
 }
 
+function parseJumpList(value) {
+  if (value === '') return []
+  const hops = []
+  for (const raw of value.split(',')) {
+    const part = raw.trim()
+    if (part === '' || part.startsWith('-')) return null
+    let hostPart = part
+    let user = null
+    const at = part.lastIndexOf('@')
+    if (at >= 0) {
+      user = part.slice(0, at)
+      hostPart = part.slice(at + 1)
+      if (user === '' || !USER_RE.test(user)) return null
+    }
+    let host = hostPart
+    let port = 22
+    if (hostPart.startsWith('[')) {
+      const close = hostPart.indexOf(']')
+      if (close < 0) return null
+      host = hostPart.slice(1, close)
+      const rest = hostPart.slice(close + 1)
+      if (rest !== '') {
+        if (!rest.startsWith(':')) return null
+        port = Number.parseInt(rest.slice(1), 10)
+      }
+    } else if ((hostPart.match(/:/g) ?? []).length === 1) {
+      const index = hostPart.lastIndexOf(':')
+      host = hostPart.slice(0, index)
+      port = Number.parseInt(hostPart.slice(index + 1), 10)
+    }
+    if (!HOST_RE.test(host) || !Number.isInteger(port) || port < 1 || port > 65535) return null
+    hops.push(`${user === null ? '' : `${user}@`}${host}${port === 22 ? '' : `:${port}`}`)
+  }
+  return hops
+}
+
 function parseDestination(destination, userOption) {
   if (typeof destination !== 'string' || destination === '') return null
   let user = userOption ?? null
@@ -97,6 +133,8 @@ export function parseSshInvocations(text, variables = {}) {
     let port = null
     let userOption = null
     let destination = null
+    let jumps = []
+    let invalidJump = false
     const remote = []
     for (let cursor = index + 1; cursor < tokens.length; cursor += 1) {
       const part = tokens[cursor]
@@ -109,6 +147,11 @@ export function parseSshInvocations(text, variables = {}) {
             if (option === '-i') key = expandVariables(value ?? '', variables)
             else if (option === '-p') port = expandVariables(value ?? '', variables)
             else if (option === '-l') userOption = expandVariables(value ?? '', variables)
+            else if (option === '-J') {
+              const parsed = parseJumpList(expandVariables(value ?? '', variables))
+              if (parsed === null) invalidJump = true
+              else jumps = parsed
+            }
           } else if (!SSH_OPTIONS_FLAG.has(option) && option.startsWith('--')) {
             if (!part.includes('=')) cursor += 1
           }
@@ -119,6 +162,7 @@ export function parseSshInvocations(text, variables = {}) {
       }
       remote.push(expandVariables(part, variables))
     }
+    if (invalidJump) continue
     const target = parseDestination(destination, userOption && expandVariables(userOption, variables))
     if (target === null) continue
     if (!destination.includes('@') && !target.host.includes('.') && target.host !== 'localhost') continue
@@ -130,6 +174,7 @@ export function parseSshInvocations(text, variables = {}) {
       user: target.user,
       port: numericPort,
       key,
+      jumps,
       remoteCommand: remote.join(' '),
     })
   }
