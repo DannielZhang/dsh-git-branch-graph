@@ -114,7 +114,7 @@ export async function apply(ctx) {
       const key = connectionKey(candidate.connection)
       let group = groups.get(key)
       if (group === undefined) {
-        group = { connection: candidate.connection, paths: new Map(), seq: candidate.lastSeq }
+        group = { connection: candidate.connection, paths: new Map(), seq: candidate.lastSeq, direct: true }
         groups.set(key, group)
       }
       group.paths.set(candidate.path, Math.max(candidate.lastSeq, group.paths.get(candidate.path) ?? 0))
@@ -134,7 +134,7 @@ export async function apply(ctx) {
         const key = connectionKey(connection)
         let group = groups.get(key)
         if (group === undefined) {
-          group = { connection, paths: new Map(), seq: hint.seq }
+          group = { connection, paths: new Map(), seq: hint.seq, direct: false }
           groups.set(key, group)
         }
         for (const path of paths) {
@@ -168,13 +168,19 @@ export async function apply(ctx) {
       } else {
         try {
           const verifySignal = AbortSignal.any([signal, AbortSignal.timeout(6_000)])
-          roots = await reader.resolveRemoteRoots(group.connection, deepest.map(([path]) => path), verifySignal)
+          roots = await reader.resolveRemoteRoots(
+            group.connection,
+            deepest.map(([path]) => path),
+            verifySignal,
+            { scanChildren: group.direct !== true },
+          )
           rootsCache.set(key, { roots, expires: Date.now() + 60_000 })
         } catch (error) {
           if (signal.aborted) throw error
           rootsCache.set(key, { roots: null, expires: Date.now() + 30_000 })
         }
       }
+      if (group.direct === true && (roots === null || roots.length === 0)) continue
       const resolved = roots !== null && roots.length > 0
         ? roots.map(root => ({ path: root.root, seq: group.seq }))
         : deepest.map(([path, seq]) => ({ path, seq }))

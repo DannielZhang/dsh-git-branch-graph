@@ -183,16 +183,20 @@ export class GitBranchReader {
   }
 
   /** Resolve remote repository roots for candidate project directories. */
-  async resolveRemoteRoots(connection, paths, signal) {
+  async resolveRemoteRoots(connection, paths, signal, options = {}) {
     if (paths.length === 0) return []
-    const list = paths.slice(0, 12)
+    const list = paths.slice(0, 24)
+    const scanChildren = options.scanChildren !== false
     const command = `set -- ${list.map(shellQuote).join(' ')}; for p in "$@"; do `
       + 'r=$(GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 git -C "$p" rev-parse --show-toplevel 2>/dev/null) '
       + '&& printf \'%s\\t%s\\n\' "$p" "$r"; '
-      + 'for d in "$p"/*; do [ -d "$d" ] || continue; '
-      + 'r=$(GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 git -C "$d" rev-parse --show-toplevel 2>/dev/null) '
-      + '&& printf \'%s\\t%s\\n\' "$d" "$r"; done; done'
-    const result = await this.runRemoteCommand(connection, command, signal, 15_000)
+      + (scanChildren
+        ? 'for d in "$p"/*; do [ -d "$d" ] || continue; '
+          + 'r=$(GIT_TERMINAL_PROMPT=0 GIT_OPTIONAL_LOCKS=0 git -C "$d" rev-parse --show-toplevel 2>/dev/null) '
+          + '&& printf \'%s\\t%s\\n\' "$d" "$r"; done; '
+        : '')
+      + 'done'
+    const result = await this.runRemoteCommand(connection, command, signal, 30_000)
     if (result.exitCode !== 0) throw new Error('Remote project discovery failed.')
     const seen = new Set()
     const roots = []

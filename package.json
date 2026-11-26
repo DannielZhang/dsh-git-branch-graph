@@ -1,6 +1,6 @@
 {
   "name": "dsh-git-branch-graph",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "Docked multi-project Git branch graph for DeepSeek Harness, with a safe repository creation wizard and local GitHub/Gitee credentials.",
   "license": "MIT",
   "author": "DannielZhang",
